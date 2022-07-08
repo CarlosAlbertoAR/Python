@@ -1,0 +1,3 @@
+É muito facil escreve com write() em Python.
+Podemos colocar quantas linhas quisermos.
+Esta é a última linha.
