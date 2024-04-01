@@ -130,5 +130,4 @@ print(conta1.__dict__)
 
 valor = 100
 
-conta
 
