@@ -7,7 +7,7 @@ from datetime import datetime
 
 # Constantes
 INTERVALO_MINUTOS = 10
-TOKEN_TELEGRAM = 'SEU_TOKEN_AQUI'  # Substitua pelo seu token real
+TOKEN_TELEGRAM = '7660507190:AAEiO1u1WGPyO_L9sIcKGKZb5HGzAEsav-4'
 
 # Inicializa banco de dados
 def criar_db():
@@ -103,6 +103,9 @@ def executar_loop():
         c.execute("SELECT * FROM buscas WHERE ativo = 1")
         buscas = c.fetchall()
 
+        if len(buscas) == 0:
+            print('Nenhuma busca cadastrada.')
+
         for busca in buscas:
             (id_busca, _, _, _, val_min, val_max, localizacao, _, link,
              chat_id, _, _, ultimo_id) = busca
@@ -130,7 +133,9 @@ def executar_loop():
                                  VALUES (?, ?, ?)''', (a['id'], id_busca, a['preco']))
         conn.commit()
         conn.close()
+        print(f'Nova busca sera efetuada em {INTERVALO_MINUTOS} minutos.')
         time.sleep(INTERVALO_MINUTOS * 60)
+
 
 if __name__ == "__main__":
     criar_db()
