@@ -29,7 +29,7 @@ def main():
 
     # Nome seguro para o arquivo
     safe_filename = search_term.replace(" ", "_") + "-Merge.txt"
-    full_output_path = os.path.join(os.getcwd(), safe_filename)
+    full_output_path = os.path.join(os.abspath(), safe_filename)
 
     # Obtém os commits com a string no log
     log_output = run_git_command(["log", "--grep", search_term, "--pretty=format:%H"], cwd=git_dir)

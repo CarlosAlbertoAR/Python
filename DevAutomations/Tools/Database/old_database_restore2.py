@@ -5,12 +5,22 @@ import pyodbc
 import logging
 
 # Melhorias
-# 1 - Input para job_name
-# 2 - Constante com diretório de destino: E:\Base de dados\SQL Server\ + [job_name]
+# 1 - Transformar em classe, com propriedades de JobID, WorkingDirectory, DataBaseFile, Dados dos Servidores (E:\Base de dados\SQL Server\ + [job_name])
+# 2 - Constante com diretório de destino: 
 # 3 - Verificar também arquivos rar ao descompactar
 # 4 - Identificar o tipo de arquivo sql server, sybase ou postgres (arquivos sem extensão)
 # 5 - Comandos SQL pos extração
-#
+# 6 - Ser instanciada e chamada da classe principal Job
+# 7 - Paranetro para deletar o backup extraido (Não o arquivo de Origem)
+
+# Principal - Pedir JobID e Descricao, criar a pasta e arquivo de anotações
+
+# Criar tools para automação de Tela PyAutoGui...
+
+# Executáveis a serem chamados
+
+
+
 
 # Configuração básica de logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
