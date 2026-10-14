@@ -12,7 +12,7 @@ Classes:
 
     BackupRestoreJob   -- representa um "job" de restauração: liga um
                           arquivo de origem (file_input) a uma base de
-                          destino (db_target) em um servidor (server),
+                          destino (database_name) em um servidor (server),
                           orquestrando extração, detecção de tipo,
                           restauração (via SQLServerDatabase /
                           PostgresDatabase / SQLAnywhereDatabase) e,
@@ -164,9 +164,9 @@ def detect_backup_type(file_path):
 
 
 # ---------------------------------------------------------------------------
-# DatabaseServer -- parâmetros de conexão
+# ConnectionSettings -- parâmetros de conexão
 # ---------------------------------------------------------------------------
-class DatabaseServer:
+class ConnectionSettings:
     """
     Agrupa os parâmetros de conexão usados para instanciar a classe
     Database correta (SQLServerDatabase, PostgresDatabase ou
@@ -212,30 +212,30 @@ class DatabaseServer:
 # ---------------------------------------------------------------------------
 class BackupRestore:
     """
-    Representa um job de restauração de backup: identificador (job_id) +
+    Representa uma restauração de backup: identificador (job_id) +
     arquivo de origem + base de destino + servidor + (opcionalmente)
     scripts SQL a executar após a restauração.
 
     Uso básico:
-        server = DatabaseServer(server="localhost", user="sa", password="...")
-        job = BackupRestoreJob(
+        connection = ConnectionSettings(server="localhost", user="sa", password="...")
+        restore = BackupRestore(
             file_input=r"\\\\fileserver\\backups\\base.zip",
             destination_folder=r"C:\\restores",
-            db_target="MinhaBase",
-            server=server,
+            database_name="MinhaBase",
+            connection=connection,
             delete_extracted_backup=True,
             post_restore_scripts=["scripts/pos_restore.sql"],
         )
-        ok = job.run()
-        print(job.to_dict())
+        ok = restore.run()
+        print(restore.to_dict())
     """
 
     def __init__(
         self,
         file_input,
         destination_folder,
-        db_target,
-        server: DatabaseServer,
+        database_name,
+        connection_settings: ConnectionSettings,
         job_id=None,
         delete_extracted_backup=False,
         post_restore_scripts=None,
@@ -248,16 +248,13 @@ class BackupRestore:
 
         # Inicializa os atributos "privados" usados pelas properties antes
         # de atribuir via setter (file_input não depende dos demais;
-        # destination_folder precisa vir antes de db_target para que
-        # _update_extraction_path() funcione corretamente).
         self._destination_folder = None
-        self._db_target = None
-        self.extraction_path = None
+        self._database_name = None
 
         self.file_input = file_input
         self.destination_folder = destination_folder
-        self.db_target = db_target
-        self.server = server
+        self.database_name = database_name
+        self.connection_settings = connection_settings
 
         self.delete_extracted_backup = delete_extracted_backup
         self.post_restore_scripts = post_restore_scripts or []
@@ -298,41 +295,28 @@ class BackupRestore:
         if isinstance(value, str):
             value = value.strip('"').strip()
         self._destination_folder = value
-        self._update_extraction_path()
 
     @property
-    def db_target(self):
-        return self._db_target
+    def database_name(self):
+        return self._database_name
 
-    @db_target.setter
-    def db_target(self, value):
+    @database_name.setter
+    def database_name(self, value):
         if isinstance(value, str):
             value = value.strip()
         if not value:
-            raise ValueError("db_target não pode ser vazio.")
-        self._db_target = value
-        self._update_extraction_path()
+            raise ValueError("database_name não pode ser vazio.")
+        self._database_name = value
 
     @property
-    def server(self):
-        return self._server
+    def connection_settings(self):
+        return self._connection_settings
 
-    @server.setter
-    def server(self, value):
-        if not isinstance(value, DatabaseServer):
-            raise TypeError("server deve ser uma instância de DatabaseServer.")
-        self._server = value
-
-    def _update_extraction_path(self):
-        """
-        Recalcula extraction_path = destination_folder + db_target e
-        garante que o diretório exista, conforme pedido: o db_target não
-        só nomeia a base de restauração, como também forma a subpasta de
-        destino da extração.
-        """
-        if self._destination_folder and self._db_target:
-            self.extraction_path = os.path.join(self._destination_folder, self._db_target)
-            os.makedirs(self.extraction_path, exist_ok=True)
+    @connection_settings.setter
+    def connection_settings(self, value):
+        if not isinstance(value, ConnectionSettings):
+            raise TypeError("connection_settings deve ser uma instância de ConnectionSettings.")
+        self._connection_settings= value
 
     # --- log / auditoria ----------------------------------------------
     def _log(self, message, level="info"):
@@ -345,30 +329,30 @@ class BackupRestore:
     def _build_database_instance(self):
         if self.backup_type == 'sqlserver':
             return SQLServerDatabase(
-                server=self.server.server,
-                database=self.db_target,
-                user=self.server.user,
-                password=self.server.password,
-                driver=self.server.driver or "ODBC Driver 17 for SQL Server",
-                trusted_connection=self.server.trusted_connection,
+                server=self.connection_settings.server,
+                port=self.connection_settings.port or 1433,
+                database=self.database_name,
+                user=self.connection_settings.user,
+                password=self.connection_settings.password,
+                driver=self.connection_settings.driver or "ODBC Driver 17 for SQL Server",
+                trusted_connection=self.connection_settings.trusted_connection,
             )
         if self.backup_type == 'postgres':
             return PostgresDatabase(
-                host=self.server.host,
-                port=self.server.port or 5432,
-                user=self.server.user or 'postgres',
-                password=self.server.password or '',
-                dbname=self.db_target,
+                host=self.connection_settings.host,
+                port=self.connection_settings.port or 5432,
+                user=self.connection_settings.user or 'postgres',
+                password=self.connection_settings.password or '',
+                dbname=self.database_name,
             )
         if self.backup_type == 'sybase':
             return SQLAnywhereDatabase(
-                server=self.server.server,
-                database=self.db_target,
-                user=self.server.user or 'dba',
-                password=self.server.password or 'sql',
-                driver=self.server.driver or "SQL Anywhere 17",
-                host=self.server.host,
-                port=self.server.port or 2638,
+                server=self.connection_settings.server,
+                database=self.database_name,
+                user=self.connection_settings.user or 'dba',
+                password=self.connection_settings.password or 'sql',
+                driver=self.connection_settings.driver or "SQL Anywhere 17",
+                host=self.connection_settings.host,
             )
         raise UnsupportedBackupTypeException(
             f"Não há classe Database associada ao tipo de backup '{self.backup_type}'."
@@ -376,11 +360,12 @@ class BackupRestore:
 
     def _restore(self, db):
         if self.backup_type == 'postgres':
-            if not db.exists(self.db_target):
-                self._log(f"Base '{self.db_target}' não existe no PostgreSQL; criando...")
-                if not db.create(self.db_target):
+            if not db.exists(self.database_name):
+                self._log(f"Base '{self.database_name}' não existe no PostgreSQL; criando...")
+                if not db.create(self.database_name):
                     return False
             return db.restore(self.backup_file)
+        
         # SQL Server e SQL Anywhere já tratam criação/abertura do banco
         # dentro do próprio restore() (ver database_sqlserver.py /
         # database_sqlanywhere.py).
@@ -429,7 +414,7 @@ class BackupRestore:
     # --- orquestração principal -----------------------------------------
     def run(self) -> bool:
         """
-        Executa o job por completo: extrai (se necessário), identifica o
+        Executa o restore por completo: extrai (se necessário), identifica o
         tipo de backup, restaura usando a classe Database correspondente,
         roda os scripts pós-restore (se houver) e faz a limpeza do backup
         extraído (se configurado). Atualiza self.status/self.success e
@@ -437,10 +422,10 @@ class BackupRestore:
         """
         self.status = "running"
         self.started_at = datetime.now()
-        self._log(f"Job iniciado: '{self.file_input}' -> base '{self.db_target}' em '{self.server.server}'.")
+        self._log(f"Restore iniciado: '{self.file_input}' -> base '{self.database_name}' em '{self.connection_settings.server}'.")
 
         try:
-            self.backup_file = extract_file(self.file_input, self.extraction_path)
+            self.backup_file = extract_file(self.file_input, self.destination_folder)
             if not self.backup_file:
                 raise RuntimeError("Não foi possível localizar um arquivo de backup válido no caminho fornecido.")
             self._log(f"Arquivo de backup identificado: {self.backup_file}")
@@ -453,7 +438,7 @@ class BackupRestore:
                 self._log(
                     "Script SQL em texto puro detectado; informe "
                     "backup_type_override ('sqlserver'/'postgres'/'sybase') ao "
-                    "criar o job para executá-lo automaticamente, ou rode-o "
+                    "criar o restore para executá-lo automaticamente, ou rode-o "
                     "manualmente com a ferramenta de linha de comando do SGBD.",
                     level="warning",
                 )
@@ -494,7 +479,7 @@ class BackupRestore:
             self.success = False
             self.status = "failed"
             self.error_message = str(exc)
-            self._log(f"Erro no job: {exc}", level="error")
+            self._log(f"Erro no restore: {exc}", level="error")
             if self.on_failure:
                 self.on_failure(self, exc)
             return False
@@ -509,9 +494,8 @@ class BackupRestore:
             "job_id": self.job_id,
             "file_input": self.file_input,
             "destination_folder": self.destination_folder,
-            "extraction_path": self.extraction_path,
-            "db_target": self.db_target,
-            "server": self.server.server,
+            "database_name": self.database_name,
+            "server": self.connection_settings.server,
             "status": self.status,
             "backup_type": self.backup_type,
             "backup_file": self.backup_file,
@@ -522,4 +506,4 @@ class BackupRestore:
         }
 
     def __repr__(self):
-        return f"<BackupRestoreJob {self.job_id} status={self.status!r} db_target={self.db_target!r}>"
+        return f"<BackupRestoreJob {self.job_id} status={self.status!r} database_name={self.database_name!r}>"

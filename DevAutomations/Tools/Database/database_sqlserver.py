@@ -198,22 +198,135 @@ class SQLServerDatabase(Database):
             self._last_error = str(exc)
             return False
 
+    @staticmethod
+    def _query_rows(conn: pyodbc.Connection, sql_text: str, *params: Any) -> List[Dict[str, Any]]:
+        """
+        Runs a statement on an explicit cursor, fully drains ALL pending
+        result sets and closes the cursor. Required on a connection without
+        MARS: leaving a result set partially read (e.g. fetchone()) or
+        unread trailing sets (RESTORE emits several) makes the next command
+        fail with "Connection is busy with results for another command".
+        """
+        cur = conn.cursor()
+        try:
+            cur.execute(sql_text, *params)
+            rows: List[Dict[str, Any]] = []
+            if cur.description:
+                columns = [c[0] for c in cur.description]
+                rows = [dict(zip(columns, r)) for r in cur.fetchall()]
+            while cur.nextset():
+                pass
+            return rows
+        finally:
+            cur.close()
+
+    @staticmethod
+    def _with_trailing_sep(folder: str) -> str:
+        """Garante separador final, respeitando o estilo do servidor (\\ ou /)."""
+        sep = "\\" if "\\" in folder else "/"
+        return folder if folder.endswith(sep) else folder + sep
+
+    def _build_move_clauses(
+        self,
+        conn: pyodbc.Connection,
+        backup_path: str,
+        data_path: Optional[str] = None,
+        log_path: Optional[str] = None,
+    ) -> str:
+        """
+        Reads the logical files of the backup (RESTORE FILELISTONLY) and
+        builds MOVE clauses pointing to the SQL Server host's data/log
+        folders. Without MOVE, SQL Server tries to recreate the .mdf/.ldf
+        at the ORIGINAL paths of the server the backup came from, which
+        usually do not exist on the target server.
+        """
+        files = self._query_rows(conn, "RESTORE FILELISTONLY FROM DISK = ?", backup_path)
+
+        if not data_path or not log_path:
+            # InstanceDefaultDataPath / InstanceDefaultLogPath: SQL Server 2012+
+            row = self._query_rows(
+                conn,
+                "SELECT CAST(SERVERPROPERTY('InstanceDefaultDataPath') AS nvarchar(512)) AS data_path, "
+                "CAST(SERVERPROPERTY('InstanceDefaultLogPath') AS nvarchar(512)) AS log_path",
+            )[0]
+            data_path = data_path or row["data_path"]
+            log_path = log_path or row["log_path"]
+
+        if not data_path or not log_path:
+            raise RuntimeError(
+                "Could not determine the server's default data/log folders; "
+                "pass data_path and log_path to restore()."
+            )
+
+        data_dir = self._with_trailing_sep(data_path)
+        log_dir = self._with_trailing_sep(log_path)
+
+        clauses = []
+        data_index = 0
+        for f in files:
+            file_type = f["Type"]  # D = data, L = log, others (F/S) = fulltext/filestream
+            if file_type == "L":
+                target = f"{log_dir}{self.database}_log.ldf"
+            elif file_type == "D":
+                ext = "mdf" if data_index == 0 else "ndf"
+                suffix = "" if data_index == 0 else f"_{data_index}"
+                target = f"{data_dir}{self.database}{suffix}.{ext}"
+                data_index += 1
+            else:
+                target = f"{data_dir}{self.database}_{f['LogicalName']}"
+            clauses.append(
+                f"MOVE N{quote_literal(f['LogicalName'])} TO N{quote_literal(target)}"
+            )
+        return ", " + ", ".join(clauses) if clauses else ""
+
     def restore(self, backup_path: str, **kwargs) -> bool:
+        """
+        Restores the backup. If the database does not exist yet, RESTORE
+        creates it; if it exists, it is replaced (WITH REPLACE) after being
+        put in SINGLE_USER mode (and returned to MULTI_USER in a finally).
+
+        IMPORTANT: backup_path (and data_path/log_path) are paths as seen
+        by the SQL SERVER host, not by the client machine.
+
+        Optional kwargs: data_path, log_path (server-side folders).
+        """
+        conn = None
+        db = quote_ident(self.database)
+        set_single_user = False
         try:
             conn = self._maintenance_connection()
-            conn.execute(
-                f"ALTER DATABASE {quote_ident(self.database)} SET SINGLE_USER WITH ROLLBACK IMMEDIATE"
+
+            db_exists = bool(
+                self._query_rows(conn, "SELECT 1 AS found FROM sys.databases WHERE name = ?", self.database)
             )
-            conn.execute(
-                f"RESTORE DATABASE {quote_ident(self.database)} FROM DISK = ? WITH REPLACE",
+
+            move_clauses = self._build_move_clauses(
+                conn, backup_path, kwargs.get("data_path"), kwargs.get("log_path")
+            )
+
+            if db_exists:
+                conn.execute(f"ALTER DATABASE {db} SET SINGLE_USER WITH ROLLBACK IMMEDIATE")
+                set_single_user = True
+
+            # Drains every result set so RESTORE fully completes before the
+            # finally block issues ALTER DATABASE ... SET MULTI_USER.
+            self._query_rows(
+                conn,
+                f"RESTORE DATABASE {db} FROM DISK = ? WITH REPLACE{move_clauses}",
                 backup_path,
             )
-            conn.execute(f"ALTER DATABASE {quote_ident(self.database)} SET MULTI_USER")
-            conn.close()
             return True
         except Exception as exc:
             self._last_error = str(exc)
             return False
+        finally:
+            if conn is not None:
+                if set_single_user:
+                    try:
+                        conn.execute(f"ALTER DATABASE {db} SET MULTI_USER")
+                    except Exception:
+                        pass  # database may be left in RESTORING state if restore failed
+                conn.close()
 
     # --- raw SQL execution (accepts %(name)s-style queries, see module docstring) ---
     def execute_sql(self, sql: str, params: Optional[Dict[str, Any]] = None) -> bool:
