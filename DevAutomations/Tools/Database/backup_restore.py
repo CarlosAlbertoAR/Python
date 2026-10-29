@@ -1,5 +1,5 @@
 """
-backup_restore_job.py
+backup_restore_ticket.py
 
 Refatoração orientada a objetos do script de restauração de backup.
 
@@ -10,7 +10,7 @@ Classes:
                           a instância de Database correta depois que o tipo
                           de backup é identificado.
 
-    BackupRestoreJob   -- representa um "job" de restauração: liga um
+    BackupRestoreticket   -- representa um "ticket" de restauração: liga um
                           arquivo de origem (file_input) a uma base de
                           destino (database_name) em um servidor (server),
                           orquestrando extração, detecção de tipo,
@@ -21,7 +21,7 @@ Classes:
 
 As funções utilitárias extract_file() e detect_backup_type(), e a exceção
 UnsupportedBackupTypeException, continuam como funções de módulo (não
-dependem de estado de instância) e são reaproveitadas internamente pelo Job.
+dependem de estado de instância) e são reaproveitadas internamente pelo ticket.
 """
 
 import os
@@ -52,7 +52,7 @@ class UnsupportedBackupTypeException(Exception):
 
 
 # ---------------------------------------------------------------------------
-# Funções utilitárias (sem estado, reaproveitadas pelo Job)
+# Funções utilitárias (sem estado, reaproveitadas pelo ticket)
 # ---------------------------------------------------------------------------
 def _read_header(file_path, size=8192):
     with open(file_path, 'rb') as f:
@@ -208,11 +208,11 @@ class ConnectionSettings:
 
 
 # ---------------------------------------------------------------------------
-# BackupRestoreJob
+# BackupRestoreticket
 # ---------------------------------------------------------------------------
 class BackupRestore:
     """
-    Representa uma restauração de backup: identificador (job_id) +
+    Representa uma restauração de backup: identificador (ticket_id) +
     arquivo de origem + base de destino + servidor + (opcionalmente)
     scripts SQL a executar após a restauração.
 
@@ -236,7 +236,7 @@ class BackupRestore:
         destination_folder,
         database_name,
         connection_settings: ConnectionSettings,
-        job_id=None,
+        ticket_id=None,
         delete_extracted_backup=False,
         post_restore_scripts=None,
         backup_type_override=None,
@@ -244,7 +244,7 @@ class BackupRestore:
         on_success=None,
         on_failure=None,
     ):
-        self.job_id = job_id or f"job_{uuid.uuid4().hex[:8]}"
+        self.ticket_id = ticket_id or f"ticket_{uuid.uuid4().hex[:8]}"
 
         # Inicializa os atributos "privados" usados pelas properties antes
         # de atribuir via setter (file_input não depende dos demais;
@@ -323,7 +323,7 @@ class BackupRestore:
         timestamp = datetime.now().isoformat(timespec="seconds")
         self.log_entries.append(f"[{timestamp}] {message}")
         log_fn = getattr(logging, level, logging.info)
-        log_fn(f"[{self.job_id}] {message}")
+        log_fn(f"[{self.ticket_id}] {message}")
 
     # --- construção da instância de Database correta -------------------
     def _build_database_instance(self):
@@ -383,7 +383,7 @@ class BackupRestore:
         Executa, em sequência, os scripts SQL de post_restore_scripts
         contra a base recém-restaurada, usando a mesma instância de
         Database (SQLServerDatabase / PostgresDatabase /
-        SQLAnywhereDatabase) já resolvida para este job.
+        SQLAnywhereDatabase) já resolvida para este ticket.
         """
         all_ok = True
         if not db.is_connected():
@@ -491,7 +491,7 @@ class BackupRestore:
     # --- utilidades -------------------------------------------------
     def to_dict(self):
         return {
-            "job_id": self.job_id,
+            "ticket_id": self.ticket_id,
             "file_input": self.file_input,
             "destination_folder": self.destination_folder,
             "database_name": self.database_name,
@@ -506,4 +506,4 @@ class BackupRestore:
         }
 
     def __repr__(self):
-        return f"<BackupRestoreJob {self.job_id} status={self.status!r} database_name={self.database_name!r}>"
+        return f"<BackupRestoreticket {self.ticket_id} status={self.status!r} database_name={self.database_name!r}>"

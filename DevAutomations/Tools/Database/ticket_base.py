@@ -1,17 +1,17 @@
 """
-executar_job.py
+executar_ticket.py
 
-Script de linha de comando que usa as classes BackupRestoreJob e
-DatabaseServer (backup_restore_job.py) para rodar um job de restauração
+Script de linha de comando que usa as classes BackupRestoreticket e
+DatabaseServer (backup_restore.py) para rodar um ticket de restauração
 de backup de forma interativa.
 
 Para uso programático (ex: dentro de uma rotina agendada, sem prompts),
 importe as classes diretamente:
 
-    from backup_restore_job import BackupRestoreJob, DatabaseServer
+    from backup_restore import BackupRestore, DatabaseServer
 
     server = DatabaseServer(server="localhost", user="sa", password="Senha123!")
-    job = BackupRestoreJob(
+    ticket = BackupRestore(
         file_input=r"\\\\fileserver\\backups\\base.zip",
         destination_folder=r"C:\\restores",
         db_target="MinhaBase",
@@ -19,8 +19,8 @@ importe as classes diretamente:
         delete_extracted_backup=True,
         post_restore_scripts=[r"scripts\\pos_restore.sql"],
     )
-    ok = job.run()
-    print(job.to_dict())
+    ok = ticket.run()
+    print(ticket.to_dict())
 """
 
 
@@ -33,17 +33,17 @@ import os
 from backup_restore import BackupRestore, ConnectionSettings
 
 def main():
-    print("=== Job de restauração de backup ===\n")
+    print("=== Restauração de backup ===\n")
 
-    job_id = "35050"
-    file_input = r"\\arquivos\bases de dados\Solicitacoes\35050 - Base de Testes\BackupTestes.rar"
-    destination_folder = rf"E:\\Base de dados\SQL Server\{job_id}"
+    ticket_id = "35656"
+    file_input = r"E:\Base de dados\SQL Server\35656\Data7_FCLOCKS.db"
+    destination_folder = rf"E:\\Base de dados\SQL Server\{ticket_id}"
 
     server_name = "localhost"
     user = "sa"
     password = "se7e@123"
     driver = None
-    database_name = "temp2"
+    database_name = "35656"
     trusted_input = False
     trusted_connection = trusted_input == "s" or user is None
     delete_extracted_backup = True # Excluir o backup extraído após a restauração (não afeta o arquivo de origem)
@@ -67,7 +67,7 @@ def main():
             destination_folder=destination_folder,
             database_name=database_name,
             connection_settings=connection,
-            job_id=job_id,
+            ticket_id=ticket_id,
             delete_extracted_backup=delete_extracted_backup,
             post_restore_scripts=post_restore_scripts,
         )
@@ -75,7 +75,7 @@ def main():
         print(f"Erro ao criar o restore: {exc}")
         return
 
-    print(f"\nJob criado: {restore}")
+    print(f"\nticket criado: {restore}")
     print(f"Pasta de extração: {restore.destination_folder}\n")
 
     ok = restore.run()
